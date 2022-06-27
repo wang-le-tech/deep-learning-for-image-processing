@@ -11,7 +11,7 @@ import torch.nn as nn
 
 def drop_path(x, drop_prob: float = 0., training: bool = False):
     """
-    Drop paths (Stochastic Depth) per sample (when applied in main path of residual blocks).
+    Drop paths (Stochastic Depth随机深度) per sample (when applied in main path of residual blocks).
     This is the same as the DropConnect impl I created for EfficientNet, etc networks, however,
     the original name is misleading as 'Drop Connect' is a different form of dropout in a separate paper...
     See discussion: https://github.com/tensorflow/tpu/issues/494#issuecomment-532968956 ... I've opted for
@@ -45,13 +45,14 @@ class PatchEmbed(nn.Module):
     2D Image to Patch Embedding
     """
     def __init__(self, img_size=224, patch_size=16, in_c=3, embed_dim=768, norm_layer=None):
+        # in_c=3：传入的是RGB图片
         super().__init__()
         img_size = (img_size, img_size)
         patch_size = (patch_size, patch_size)
         self.img_size = img_size
         self.patch_size = patch_size
         self.grid_size = (img_size[0] // patch_size[0], img_size[1] // patch_size[1])
-        self.num_patches = self.grid_size[0] * self.grid_size[1]
+        self.num_patches = self.grid_size[0] * self.grid_size[1] # 14*14
 
         self.proj = nn.Conv2d(in_c, embed_dim, kernel_size=patch_size, stride=patch_size)
         self.norm = norm_layer(embed_dim) if norm_layer else nn.Identity()
@@ -71,14 +72,14 @@ class PatchEmbed(nn.Module):
 class Attention(nn.Module):
     def __init__(self,
                  dim,   # 输入token的dim
-                 num_heads=8,
+                 num_heads=8,  # head的个数
                  qkv_bias=False,
                  qk_scale=None,
                  attn_drop_ratio=0.,
                  proj_drop_ratio=0.):
         super(Attention, self).__init__()
         self.num_heads = num_heads
-        head_dim = dim // num_heads
+        head_dim = dim // num_heads  # 得到每一个head的qkv的dimension
         self.scale = qk_scale or head_dim ** -0.5
         self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
         self.attn_drop = nn.Dropout(attn_drop_ratio)
@@ -97,9 +98,9 @@ class Attention(nn.Module):
         q, k, v = qkv[0], qkv[1], qkv[2]  # make torchscript happy (cannot use tensor as tuple)
 
         # transpose: -> [batch_size, num_heads, embed_dim_per_head, num_patches + 1]
-        # @: multiply -> [batch_size, num_heads, num_patches + 1, num_patches + 1]
+        # @: multiply -> [batch_size, num_heads, num_patches + 1, num_patches + 1] @：矩阵乘法
         attn = (q @ k.transpose(-2, -1)) * self.scale
-        attn = attn.softmax(dim=-1)
+        attn = attn.softmax(dim=-1)  #对每一行都进行softmax处理
         attn = self.attn_drop(attn)
 
         # @: multiply -> [batch_size, num_heads, num_patches + 1, embed_dim_per_head]
@@ -133,17 +134,17 @@ class Mlp(nn.Module):
         return x
 
 
-class Block(nn.Module):
+class Block(nn.Module):  # Encoder block
     def __init__(self,
-                 dim,
+                 dim,  # 每个token的dimension
                  num_heads,
-                 mlp_ratio=4.,
+                 mlp_ratio=4.,  # 第一个全连接层的结点个数是输入的结点个数的四倍
                  qkv_bias=False,
                  qk_scale=None,
                  drop_ratio=0.,
                  attn_drop_ratio=0.,
                  drop_path_ratio=0.,
-                 act_layer=nn.GELU,
+                 act_layer=nn.GELU,  # 激活函数
                  norm_layer=nn.LayerNorm):
         super(Block, self).__init__()
         self.norm1 = norm_layer(dim)
@@ -174,13 +175,13 @@ class VisionTransformer(nn.Module):
             in_c (int): number of input channels
             num_classes (int): number of classes for classification head
             embed_dim (int): embedding dimension
-            depth (int): depth of transformer
+            depth (int): depth of transformer  # 重复堆叠Encoder block的次数
             num_heads (int): number of attention heads
             mlp_ratio (int): ratio of mlp hidden dim to embedding dim
             qkv_bias (bool): enable bias for qkv if True
             qk_scale (float): override default qk scale of head_dim ** -0.5 if set
-            representation_size (Optional[int]): enable and set representation layer (pre-logits) to this value if set
-            distilled (bool): model includes a distillation token and head as in DeiT models
+            representation_size (Optional[int]): enable and set representation layer (pre-logits) to this value if set  MLPhead的pre-logits中全连接层的结点个数
+            distilled (bool): model includes a distillation token and head as in DeiT models  # 在VIT中不用
             drop_ratio (float): dropout rate
             attn_drop_ratio (float): attention dropout rate
             drop_path_ratio (float): stochastic depth rate
@@ -190,15 +191,15 @@ class VisionTransformer(nn.Module):
         super(VisionTransformer, self).__init__()
         self.num_classes = num_classes
         self.num_features = self.embed_dim = embed_dim  # num_features for consistency with other models
-        self.num_tokens = 2 if distilled else 1
+        self.num_tokens = 2 if distilled else 1  # 1
         norm_layer = norm_layer or partial(nn.LayerNorm, eps=1e-6)
         act_layer = act_layer or nn.GELU
 
         self.patch_embed = embed_layer(img_size=img_size, patch_size=patch_size, in_c=in_c, embed_dim=embed_dim)
         num_patches = self.patch_embed.num_patches
 
-        self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
-        self.dist_token = nn.Parameter(torch.zeros(1, 1, embed_dim)) if distilled else None
+        self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))  # 第一个维度为batch维度，为了方便拼接。nn.Parameter构建可训练参数
+        self.dist_token = nn.Parameter(torch.zeros(1, 1, embed_dim)) if distilled else None  # 不用管
         self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + self.num_tokens, embed_dim))
         self.pos_drop = nn.Dropout(p=drop_ratio)
 
