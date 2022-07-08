@@ -19,7 +19,7 @@ def main():
          transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])])
 
     # load image
-    img_path = "../tulip.jpg"
+    img_path = "D:\code_learning_file\deep-learning-for-image-processing\pytorch_classification\\vision_transformer\\flower_photos\\tulips\\10791227_7168491604.jpg"
     assert os.path.exists(img_path), "file: '{}' dose not exist.".format(img_path)
     img = Image.open(img_path)
     plt.imshow(img)
@@ -38,7 +38,7 @@ def main():
     # create model
     model = create_model(num_classes=5, has_logits=False).to(device)  # has_logits的值在训练和预测是要一致
     # load model weights
-    model_weight_path = "./weights/model-9.pth"
+    model_weight_path = "./pretrained_weights/vit_base_patch16_224.pth"
     model.load_state_dict(torch.load(model_weight_path, map_location=device))
     model.eval()
     with torch.no_grad():
